@@ -158,8 +158,8 @@ def check_all_projects():
     with open("config/projects.yml", "r") as f:
         config = yaml.safe_load(f)
 
-    my_username = get_my_username()
-    print(f"👤 認証ユーザー: {my_username}")
+    my_username = config.get("github_username")
+    print(f"👤 対象ユーザー: {my_username}")
 
     messages = ["🌙 *夜のPRチェック報告です*"]
 
