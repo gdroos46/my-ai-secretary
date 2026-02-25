@@ -1,0 +1,9 @@
+backlog:
+  - project: "決済システムPJT"
+    title: "Stripe連携のバグ修正"
+    priority: "P0"
+    estimate: "M"
+  - project: "LP制作PJT"
+    title: "ヒーロービジュアルの差し替え"
+    priority: "P1"
+    estimate: "S"

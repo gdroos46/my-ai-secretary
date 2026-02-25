@@ -1,0 +1,33 @@
+name: Weekly Task Planner
+on:
+  schedule:
+    # 毎週日曜 21:00 JST = 12:00 UTC（翌週の計画を前日夜に生成）
+    - cron: '0 12 * * 0'
+  workflow_dispatch:
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install requests PyYAML google-generativeai
+
+      - name: Generate weekly plan
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python scripts/planner.py
+
+      - name: Commit plan
+        run: |
+          git config user.name "ai-secretary[bot]"
+          git config user.email "ai-secretary[bot]@users.noreply.github.com"
+          git add data/week_plan.json
+          git diff --cached --quiet || git commit -m "📋 週次プラン更新: $(date +%Y-W%V)"
+          git push
