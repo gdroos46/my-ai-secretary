@@ -1,0 +1,9 @@
+projects:
+  - name: "jreast"
+    repo: "favy-jp/media.jrenet.jp"
+  - name: "inak-system"
+    repo: "launch-lab/inak-system"
+  - name: "sanyo-sangyo-bs"
+    repo: "launch-lab/sanyo-sangyo-bs"
+  - name: "mensoku"
+    repo: "hataponnu/mensoku"

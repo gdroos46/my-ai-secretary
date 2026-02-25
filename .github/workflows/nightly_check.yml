@@ -1,0 +1,22 @@
+name: Nightly PR Check
+on:
+  schedule:
+    - cron: '0 10 * * 1-5' # 平日21:00 (JST) 
+  workflow_dispatch:      # ボタンで手動実行も可能
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: pip install requests PyYAML
+      - name: Run check
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          SLACK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: python scripts/secretary.py
