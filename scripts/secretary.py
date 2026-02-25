@@ -24,11 +24,23 @@ RISK_KEYWORDS = [
 ]
 
 
-def get_pull_requests(repo):
-    """オープンなPR一覧を取得"""
-    url = f"https://api.github.com/repos/{repo}/pulls"
+def get_my_username():
+    """認証ユーザーのGitHubユーザー名を取得"""
+    url = "https://api.github.com/user"
     headers = {"Authorization": f"token {GH_TOKEN}"}
     response = requests.get(url, headers=headers)
+    data = response.json()
+    return data.get("login")
+
+
+def get_pull_requests(repo, creator=None):
+    """オープンなPR一覧を取得（creatorで絞り込み可）"""
+    url = f"https://api.github.com/repos/{repo}/pulls"
+    headers = {"Authorization": f"token {GH_TOKEN}"}
+    params = {}
+    if creator:
+        params["creator"] = creator
+    response = requests.get(url, headers=headers, params=params)
     data = response.json()
     # APIエラー時は辞書が返る（例: {"message": "Not Found"}）
     if isinstance(data, dict):
@@ -142,9 +154,12 @@ def format_pr_message(pr, repo, summary, risks):
 
 
 def check_all_projects():
-    """全プロジェクトのPRをチェック"""
+    """全プロジェクトのPRをチェック（自分が作ったPRのみ）"""
     with open("config/projects.yml", "r") as f:
         config = yaml.safe_load(f)
+
+    my_username = get_my_username()
+    print(f"👤 認証ユーザー: {my_username}")
 
     messages = ["🌙 *夜のPRチェック報告です*"]
 
@@ -154,7 +169,7 @@ def check_all_projects():
     for pjt in config["projects"]:
         repo = pjt["repo"]
         name = pjt["name"]
-        prs = get_pull_requests(repo)
+        prs = get_pull_requests(repo, creator=my_username)
 
         if not prs:
             messages.append(f"✅ *{name}*: オープンPRなし。")
