@@ -13,16 +13,6 @@ GH_TOKEN = os.getenv("GH_TOKEN")
 SLACK_URL = os.getenv("SLACK_URL")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
-# リスク判定キーワード
-RISK_KEYWORDS = [
-    "migration", "migrate", "schema", "alter table", "drop table",
-    "add_column", "remove_column", "rename_column",
-    "Gemfile.lock", "package-lock.json", "yarn.lock", "poetry.lock",
-    "requirements.txt", "Pipfile.lock",
-    "Dockerfile", "docker-compose",
-    ".env", "secrets", "credentials",
-]
-
 
 def get_my_username():
     """認証ユーザーのGitHubユーザー名を取得"""
@@ -59,15 +49,6 @@ def get_pr_diff(repo, pr_number):
     response = requests.get(url, headers=headers)
     return response.text
 
-
-def detect_risk(diff_text):
-    """破壊的変更のリスクを検出"""
-    diff_lower = diff_text.lower()
-    found_risks = []
-    for keyword in RISK_KEYWORDS:
-        if keyword.lower() in diff_lower:
-            found_risks.append(keyword)
-    return found_risks
 
 
 def summarize_with_claude(diff_text, pr_title):
@@ -116,7 +97,7 @@ def summarize_with_claude(diff_text, pr_title):
         return None
 
 
-def format_pr_message(pr, repo, summary, risks):
+def format_pr_message(pr, summary=None):
     """PR1件分のSlackメッセージを整形"""
     title = pr["title"]
     url = pr["html_url"]
@@ -140,17 +121,12 @@ def format_pr_message(pr, repo, summary, risks):
         status_line = f"  🔵 Review中: <{url}|{title}>"
         action = "→ レビュー催促する？"
 
-    # リスク警告
-    risk_line = ""
-    if risks:
-        risk_line = f"\n  ⚠️ *破壊的変更の可能性*: {', '.join(risks)}"
-
     # AI要約
     summary_line = ""
     if summary:
         summary_line = f"\n  🤖 _{summary}_"
 
-    return f"{status_line}\n  {action}{risk_line}{summary_line}"
+    return f"{status_line}\n  {action}{summary_line}"
 
 
 def check_all_projects():
@@ -180,18 +156,13 @@ def check_all_projects():
         for pr in prs:
             pr_number = pr["number"]
 
-            # PR差分を取得して分析
+            # Claude APIがある場合のみ要約生成
             summary = None
-            risks = []
-            if ANTHROPIC_API_KEY or True:  # リスク検出はAPI不要
+            if ANTHROPIC_API_KEY:
                 diff = get_pr_diff(repo, pr_number)
-                risks = detect_risk(diff)
+                summary = summarize_with_claude(diff, pr["title"])
 
-                # Claude APIがある場合のみ要約生成
-                if ANTHROPIC_API_KEY:
-                    summary = summarize_with_claude(diff, pr["title"])
-
-            msg = format_pr_message(pr, repo, summary, risks)
+            msg = format_pr_message(pr, summary=summary)
             messages.append(msg)
 
     # Slack送信
