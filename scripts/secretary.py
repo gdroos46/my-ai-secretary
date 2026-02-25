@@ -34,18 +34,18 @@ def get_my_username():
 
 
 def get_pull_requests(repo, creator=None):
-    """オープンなPR一覧を取得（creatorで絞り込み可）"""
+    """オープンなPR一覧を取得（creatorでクライアント側フィルタ）"""
     url = f"https://api.github.com/repos/{repo}/pulls"
     headers = {"Authorization": f"token {GH_TOKEN}"}
-    params = {}
-    if creator:
-        params["creator"] = creator
-    response = requests.get(url, headers=headers, params=params)
+    response = requests.get(url, headers=headers)
     data = response.json()
     # APIエラー時は辞書が返る（例: {"message": "Not Found"}）
     if isinstance(data, dict):
         print(f"⚠️ {repo}: API error - {data.get('message', 'Unknown error')}")
         return []
+    # ユーザー名でフィルタ
+    if creator:
+        data = [pr for pr in data if pr.get("user", {}).get("login") == creator]
     return data
 
 
