@@ -5,5 +5,5 @@ projects:
     repo: "launch-lab/inak-system"
   - name: "sanyo-sangyo-bs"
     repo: "launch-lab/sanyo-sangyo-bs"
-  - name: "個人案件"
-    repo: "hataponnu/mensoku"
+  # - name: "個人案件"
+    # repo: "hataponnu/mensoku"
