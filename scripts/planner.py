@@ -15,7 +15,7 @@ GH_TOKEN = os.getenv("GH_TOKEN")
 SLACK_URL = os.getenv("SLACK_URL")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-LABEL = "this_week"
+LABEL = "todo"
 
 # ポイント換算（Issueラベルで判定）
 SIZE_POINTS = {"size/S": 1, "size/M": 3, "size/L": 5}
@@ -197,7 +197,7 @@ def main():
 
     issues = collect_all_issues(config)
     if not issues:
-        notify_slack("☀️ *おはようございます！*\n📭 this_week のIssueはありません。今週はフリーです！")
+        notify_slack("☀️ *おはようございます！*\n📭 todo のIssueはありません。今週はフリーです！")
         return
 
     print(f"✅ 合計 {len(issues)}件のタスクを収集")
