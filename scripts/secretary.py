@@ -97,36 +97,24 @@ def summarize_with_claude(diff_text, pr_title):
         return None
 
 
-def format_pr_message(pr, summary=None):
-    """PR1件分のSlackメッセージを整形"""
-    title = pr["title"]
-    url = pr["html_url"]
-    is_draft = pr["draft"]
+def get_pr_status(pr):
+    """PRのステータスを判定"""
+    if pr["draft"]:
+        return "draft"
 
     # レビュー状態の取得
     reviews_url = pr["_links"]["self"]["href"] + "/reviews"
     reviews = requests.get(
         reviews_url, headers={"Authorization": f"token {GH_TOKEN}"}
     ).json()
-    is_approved = any(r["state"] == "APPROVED" for r in reviews)
+    if isinstance(reviews, list) and any(r["state"] == "APPROVED" for r in reviews):
+        return "approved"
 
-    # ステータスアイコンと次のアクション
-    if is_draft:
-        status_line = f"  🟡 Draft: <{url}|{title}>"
-        action = "→ Readyにしてね"
-    elif is_approved:
-        status_line = f"  🍏 *Approved!*: <{url}|{title}>"
-        action = "→ マージ忘れ？"
-    else:
-        status_line = f"  🔵 Review中: <{url}|{title}>"
-        action = "→ レビュー催促する？"
+    # reviewerがついているか
+    if pr.get("requested_reviewers"):
+        return "in_review"
 
-    # AI要約
-    summary_line = ""
-    if summary:
-        summary_line = f"\n  🤖 _{summary}_"
-
-    return f"{status_line}\n  {action}{summary_line}"
+    return "no_reviewer"
 
 
 def check_all_projects():
@@ -139,9 +127,6 @@ def check_all_projects():
 
     messages = ["🌙 *夜のPRチェック報告です*"]
 
-    if ANTHROPIC_API_KEY:
-        messages[0] += " (AI要約付き 🧠)"
-
     for pjt in config["projects"]:
         repo = pjt["repo"]
         name = pjt["name"]
@@ -151,23 +136,48 @@ def check_all_projects():
             messages.append(f"✅ *{name}*: オープンPRなし。")
             continue
 
-        messages.append(f"\n📂 *{name}* ({len(prs)}件のPR):")
+        # ステータスごとに分類
+        approved = []
+        in_review = []
+        draft = []
+        no_reviewer = []
 
         for pr in prs:
-            pr_number = pr["number"]
+            status = get_pr_status(pr)
+            url = pr["html_url"]
+            title = pr["title"]
+            line = f"<{url}|{title}>"
 
-            # Claude APIがある場合のみ要約生成
-            summary = None
-            if ANTHROPIC_API_KEY:
-                diff = get_pr_diff(repo, pr_number)
-                summary = summarize_with_claude(diff, pr["title"])
+            if status == "approved":
+                approved.append(line)
+            elif status == "in_review":
+                in_review.append(line)
+            elif status == "draft":
+                draft.append(line)
+            else:
+                no_reviewer.append(line)
 
-            msg = format_pr_message(pr, summary=summary)
-            messages.append(msg)
+        messages.append(f"\n📂 *{name}*")
+        if approved:
+            messages.append("  🍏 *マージ待ち*")
+            for line in approved:
+                messages.append(f"    ・ {line}")
+        if in_review:
+            messages.append("  🔵 *レビュー中*")
+            for line in in_review:
+                messages.append(f"    ・ {line}")
+        if no_reviewer:
+            messages.append("  🔴 *レビュー未依頼*")
+            for line in no_reviewer:
+                messages.append(f"    ・ {line}")
+        if draft:
+            messages.append("  🟡 *Draft*")
+            for line in draft:
+                messages.append(f"    ・ {line}")
 
     # Slack送信
     full_message = "\n".join(messages)
-    print(full_message)  # ログ出力
+    print(full_message)
 
     payload = {"text": full_message}
     requests.post(SLACK_URL, json=payload)
