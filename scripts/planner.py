@@ -1,187 +1,212 @@
 """
-Weekly Task Planner - AI秘書のスケジューリング担当
-Gemini APIを使って、翌週の月〜金にタスクを最適に割り振る。
+Daily Task Planner - AI秘書のスケジューリング担当
+GitHub Issueから this_week ラベルのタスクを収集し、
+今日のタスクをSlackに通知する。
 """
 
 import os
 import json
 import yaml
+import requests
 from datetime import datetime, timedelta
-import google.generativeai as genai
 
-# Gemini API 設定
+# 設定
+GH_TOKEN = os.getenv("GH_TOKEN")
+SLACK_URL = os.getenv("SLACK_URL")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# ポイント換算テーブル
-ESTIMATE_POINTS = {"S": 1, "M": 3, "L": 5}
+LABEL = "this_week"
+
+# ポイント換算（Issueラベルで判定）
+SIZE_POINTS = {"size/S": 1, "size/M": 3, "size/L": 5}
+DEFAULT_POINTS = 3
 MAX_POINTS_PER_DAY = 6
 
 
-def load_backlog():
-    """data/tasks_backlog.yml からタスク一覧を読み込む"""
-    with open("data/tasks_backlog.yml", "r") as f:
-        data = yaml.safe_load(f)
-    return data.get("backlog", [])
+def load_config():
+    with open("config/projects.yml", "r") as f:
+        return yaml.safe_load(f)
 
 
-def get_next_week_dates():
-    """翌週の月〜金の日付を返す"""
+def fetch_issues(repo, label):
+    """リポジトリからthis_weekラベルのオープンIssueを取得"""
+    url = f"https://api.github.com/repos/{repo}/issues"
+    headers = {"Authorization": f"token {GH_TOKEN}"}
+    params = {
+        "labels": label,
+        "state": "open",
+        "per_page": 100,
+    }
+    response = requests.get(url, headers=headers, params=params)
+    data = response.json()
+
+    if isinstance(data, dict):
+        print(f"⚠️ {repo}: API error - {data.get('message', 'Unknown error')}")
+        return []
+
+    # PRを除外（IssueAPIはPRも返す）
+    return [issue for issue in data if "pull_request" not in issue]
+
+
+def get_issue_size(issue):
+    """Issueのラベルからサイズポイントを取得"""
+    labels = [l["name"] for l in issue.get("labels", [])]
+    for label, points in SIZE_POINTS.items():
+        if label in labels:
+            return points
+    return DEFAULT_POINTS
+
+
+def get_issue_priority(issue):
+    """Issueのラベルから優先度を取得"""
+    labels = [l["name"] for l in issue.get("labels", [])]
+    for label in labels:
+        if label.startswith("P") and len(label) == 2 and label[1].isdigit():
+            return int(label[1])
+    return 5  # ラベルなしは最低優先
+
+
+def collect_all_issues(config):
+    """全プロジェクトからthis_weekのIssueを収集"""
+    all_issues = []
+    for pjt in config["projects"]:
+        repo = pjt["repo"]
+        name = pjt["name"]
+        issues = fetch_issues(repo, LABEL)
+        print(f"📂 {name}: {len(issues)}件のIssue")
+
+        for issue in issues:
+            all_issues.append({
+                "project": name,
+                "repo": repo,
+                "number": issue["number"],
+                "title": issue["title"],
+                "url": issue["html_url"],
+                "priority": get_issue_priority(issue),
+                "points": get_issue_size(issue),
+                "labels": [l["name"] for l in issue.get("labels", [])],
+            })
+
+    return all_issues
+
+
+def get_remaining_weekdays():
+    """今日から金曜日までの残り平日リストを返す"""
     today = datetime.now()
-    # 次の月曜日を計算
-    days_until_monday = (7 - today.weekday()) % 7
-    if days_until_monday == 0:
-        days_until_monday = 7
-    next_monday = today + timedelta(days=days_until_monday)
+    days = []
+    current = today
+    # 今日が土日なら月曜始まり
+    if current.weekday() >= 5:
+        days_until_monday = 7 - current.weekday()
+        current = current + timedelta(days=days_until_monday)
 
-    dates = {}
-    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-    for i, name in enumerate(day_names):
-        date = next_monday + timedelta(days=i)
-        dates[name] = date.strftime("%Y-%m-%d")
-    return dates, next_monday.isocalendar()
+    while current.weekday() < 5:  # 月〜金
+        days.append(current.strftime("%Y-%m-%d (%a)"))
+        current += timedelta(days=1)
 
-
-def build_prompt(backlog, dates):
-    """Gemini に渡すプロンプトを生成"""
-    tasks_text = ""
-    for i, task in enumerate(backlog):
-        points = ESTIMATE_POINTS.get(task["estimate"], 3)
-        tasks_text += (
-            f"  {i+1}. project: {task['project']}, "
-            f"title: {task['title']}, "
-            f"priority: {task['priority']}, "
-            f"estimate: {task['estimate']} ({points}pt)\n"
-        )
-
-    dates_text = "\n".join(f"  - {name}: {date}" for name, date in dates.items())
-
-    return f"""あなたはプロジェクトマネージャーです。
-以下のタスクを翌週の月〜金に最適に割り振ってください。
-
-【制約条件】
-- 1日の合計負荷ポイントは最大{MAX_POINTS_PER_DAY}ポイント
-- ポイント換算: S=1, M=3, L=5
-- 優先度が高いもの(P0 > P1 > P2)は週の前半に配置
-- 依存関係があれば考慮すること（タスク名から推測）
-- すべてのタスクを割り振ること。ポイントが足りない場合は超過してでも割り振る
-
-【タスク一覧】
-{tasks_text}
-
-【割り当て先の日付】
-{dates_text}
-
-【出力形式】
-以下のJSON形式のみを出力してください。説明文は不要です。
-{{
-  "Monday": [
-    {{"project": "...", "title": "...", "priority": "...", "estimate": "...", "points": N}}
-  ],
-  "Tuesday": [...],
-  "Wednesday": [...],
-  "Thursday": [...],
-  "Friday": [...]
-}}
-"""
+    return days
 
 
-def generate_plan_with_gemini(prompt):
-    """Gemini API を呼び出してタスク割り当てを生成"""
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash")
+def plan_tasks(issues):
+    """優先度順にタスクを残り平日に割り振る"""
+    days = get_remaining_weekdays()
+    if not days:
+        return {}
 
-    response = model.generate_content(prompt)
-    text = response.text.strip()
+    # 優先度 → ポイント小さい順でソート
+    sorted_issues = sorted(issues, key=lambda t: (t["priority"], t["points"]))
 
-    # ```json ... ``` のフェンスを除去
-    if text.startswith("```"):
-        lines = text.split("\n")
-        # 最初と最後のフェンス行を除去
-        lines = [l for l in lines if not l.strip().startswith("```")]
-        text = "\n".join(lines)
-
-    return json.loads(text)
-
-
-def generate_plan_fallback(backlog):
-    """Gemini APIが使えない場合のローカルフォールバック"""
-    # 優先度でソート (P0 > P1 > P2)
-    priority_order = {"P0": 0, "P1": 1, "P2": 2}
-    sorted_tasks = sorted(backlog, key=lambda t: priority_order.get(t["priority"], 9))
-
-    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
     plan = {day: [] for day in days}
     day_points = {day: 0 for day in days}
 
-    for task in sorted_tasks:
-        points = ESTIMATE_POINTS.get(task["estimate"], 3)
-        # 最も空いている日（前半優先）に割り当て
+    for task in sorted_issues:
+        points = task["points"]
         assigned = False
+
+        # 前半の日から順に空きを探す
         for day in days:
             if day_points[day] + points <= MAX_POINTS_PER_DAY:
-                plan[day].append({
-                    "project": task["project"],
-                    "title": task["title"],
-                    "priority": task["priority"],
-                    "estimate": task["estimate"],
-                    "points": points,
-                })
+                plan[day].append(task)
                 day_points[day] += points
                 assigned = True
                 break
 
-        # すべての日が満杯なら最も空いている日に強制割り当て
+        # 全部埋まっていたら最も空いている日に
         if not assigned:
             min_day = min(days, key=lambda d: day_points[d])
-            plan[min_day].append({
-                "project": task["project"],
-                "title": task["title"],
-                "priority": task["priority"],
-                "estimate": task["estimate"],
-                "points": points,
-            })
+            plan[min_day].append(task)
             day_points[min_day] += points
 
     return plan
 
 
-def save_plan(plan, iso_calendar):
-    """data/week_plan.json に保存"""
-    year, week, _ = iso_calendar
-    week_key = f"{year}-W{week:02d}"
+def format_today_message(plan):
+    """今日のタスクをSlackメッセージに整形"""
+    today = datetime.now().strftime("%Y-%m-%d (%a)")
 
-    output = {week_key: plan}
+    messages = [f"☀️ *おはようございます！今日のタスクです*（{today}）"]
+
+    today_tasks = plan.get(today, [])
+    if not today_tasks:
+        messages.append("📭 今日の予定タスクはありません。")
+    else:
+        total_points = sum(t["points"] for t in today_tasks)
+        messages.append(f"📊 合計: {total_points}pt / {MAX_POINTS_PER_DAY}pt")
+        messages.append("")
+        for task in today_tasks:
+            messages.append(
+                f"  ・ [{task['project']}] <{task['url']}|{task['title']}> ({task['points']}pt)"
+            )
+
+    # 残りの日のサマリー
+    other_days = {day: tasks for day, tasks in plan.items() if day != today and tasks}
+    if other_days:
+        messages.append("")
+        messages.append("📅 *今週の残り*")
+        for day, tasks in other_days.items():
+            total = sum(t["points"] for t in tasks)
+            task_names = ", ".join(t["title"][:20] for t in tasks)
+            messages.append(f"  {day}: {task_names} ({total}pt)")
+
+    return "\n".join(messages)
+
+
+def save_plan(plan):
+    """data/week_plan.json に保存"""
+    today = datetime.now()
+    _, week, _ = today.isocalendar()
+    week_key = f"{today.year}-W{week:02d}"
+
+    output = {"week": week_key, "updated": today.strftime("%Y-%m-%d %H:%M"), "plan": plan}
 
     os.makedirs("data", exist_ok=True)
     with open("data/week_plan.json", "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
-    print(f"✅ 週次プラン生成完了: {week_key}")
-    print(json.dumps(output, ensure_ascii=False, indent=2))
+
+def notify_slack(message):
+    """Slackに通知"""
+    if SLACK_URL:
+        requests.post(SLACK_URL, json={"text": message})
+    print(message)
 
 
 def main():
-    backlog = load_backlog()
-    if not backlog:
-        print("📭 バックログが空です。タスクを data/tasks_backlog.yml に追加してください。")
+    config = load_config()
+    print("📋 GitHub Issueからタスク収集中...")
+
+    issues = collect_all_issues(config)
+    if not issues:
+        notify_slack("☀️ *おはようございます！*\n📭 this_week のIssueはありません。今週はフリーです！")
         return
 
-    dates, iso_calendar = get_next_week_dates()
+    print(f"✅ 合計 {len(issues)}件のタスクを収集")
 
-    if GEMINI_API_KEY:
-        print("🤖 Gemini API でタスク割り当てを生成中...")
-        prompt = build_prompt(backlog, dates)
-        try:
-            plan = generate_plan_with_gemini(prompt)
-        except Exception as e:
-            print(f"⚠️ Gemini API エラー: {e}")
-            print("📋 ローカルロジックにフォールバックします。")
-            plan = generate_plan_fallback(backlog)
-    else:
-        print("📋 GEMINI_API_KEY 未設定。ローカルロジックで割り当てます。")
-        plan = generate_plan_fallback(backlog)
+    plan = plan_tasks(issues)
+    save_plan(plan)
 
-    save_plan(plan, iso_calendar)
+    message = format_today_message(plan)
+    notify_slack(message)
 
 
 if __name__ == "__main__":
