@@ -7,5 +7,7 @@ projects:
     repo: "launch-lab/inak-system"
   - name: "sanyo-sangyo-bs"
     repo: "launch-lab/sanyo-sangyo-bs"
+  - name: "spine"
+    repo: "launch-lab/spine-rails"
   # - name: "個人案件"
     # repo: "hataponnu/mensoku"
