@@ -150,12 +150,9 @@ def format_today_message(plan):
     if not today_tasks:
         messages.append("📭 今日の予定タスクはありません。")
     else:
-        total_points = sum(t["points"] for t in today_tasks)
-        messages.append(f"📊 合計: {total_points}pt / {MAX_POINTS_PER_DAY}pt")
-        messages.append("")
         for task in today_tasks:
             messages.append(
-                f"  ・ [{task['project']}] <{task['url']}|{task['title']}> ({task['points']}pt)"
+                f"  ・ [{task['project']}] <{task['url']}|{task['title']}>"
             )
 
     # 残りの日のサマリー
@@ -164,9 +161,8 @@ def format_today_message(plan):
         messages.append("")
         messages.append("📅 *今週の残り*")
         for day, tasks in other_days.items():
-            total = sum(t["points"] for t in tasks)
             task_names = ", ".join(t["title"][:20] for t in tasks)
-            messages.append(f"  {day}: {task_names} ({total}pt)")
+            messages.append(f"  {day}: {task_names}")
 
     return "\n".join(messages)
 
