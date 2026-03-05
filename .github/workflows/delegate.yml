@@ -1,15 +1,10 @@
 name: Delegate to Claude
 on:
-  # GitHub Actions UIからの手動実行
+  schedule:
+    # 平日 9:00-19:00 JST の間、15分おきにチェック
+    # (UTC 0:00-10:00 = JST 9:00-19:00)
+    - cron: '*/15 0-10 * * 1-5'
   workflow_dispatch:
-    inputs:
-      issues:
-        description: 'Issue指定（例: "jreast#12 inak#15"）'
-        required: true
-        type: string
-  # Slack Webhook経由での実行
-  repository_dispatch:
-    types: [delegate]
 
 jobs:
   delegate:
@@ -25,9 +20,8 @@ jobs:
       - name: Install dependencies
         run: pip install requests PyYAML
 
-      - name: Delegate issues to Claude
+      - name: Scan and delegate claude-labeled issues
         env:
           GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           SLACK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          ISSUE_INPUT: ${{ github.event.inputs.issues || github.event.client_payload.issues }}
         run: python scripts/delegate.py

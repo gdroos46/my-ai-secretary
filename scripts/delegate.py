@@ -1,17 +1,17 @@
 """
 Task Delegator - AI秘書の作業委任担当
-指定されたIssueに @claude コメントを投稿し、
-Claude Codeに実装を自動で任せる。
+「claude」ラベルがついたIssueを検知し、
+@claude コメントで実装を自動依頼する。
 """
 
 import os
-import re
 import yaml
 import requests
 
 GH_TOKEN = os.getenv("GH_TOKEN")
 SLACK_URL = os.getenv("SLACK_URL")
-ISSUE_INPUT = os.getenv("ISSUE_INPUT", "")  # "#12 #15" or "jreast#12 inak#15"
+
+TRIGGER_LABEL = "claude"
 
 
 def load_config():
@@ -19,56 +19,34 @@ def load_config():
         return yaml.safe_load(f)
 
 
-def parse_issue_input(text, config):
-    """
-    入力テキストからIssue情報をパース
-    対応フォーマット:
-      - "#12 #15"                → 全PJTから探す
-      - "jreast#12 inak#15"     → PJT指定
-      - "#12やって #15お願い"    → 日本語混じりOK
-    """
-    # プロジェクト名→repoのマッピング
-    name_to_repo = {pjt["name"]: pjt["repo"] for pjt in config["projects"]}
-
-    issues = []
-
-    # "pjt名#番号" パターン
-    named_pattern = re.findall(r'(\w+)#(\d+)', text)
-    for name, number in named_pattern:
-        if name in name_to_repo:
-            issues.append({
-                "project": name,
-                "repo": name_to_repo[name],
-                "number": int(number),
-            })
-
-    # マッチしなかったら、"#番号" パターンで全PJTから探す
-    if not issues:
-        bare_numbers = re.findall(r'#(\d+)', text)
-        for number in bare_numbers:
-            issue_info = find_issue_in_projects(int(number), config)
-            if issue_info:
-                issues.append(issue_info)
-
-    return issues
-
-
-def find_issue_in_projects(number, config):
-    """Issue番号から該当するPJTを探す"""
+def fetch_labeled_issues(repo):
+    """リポジトリから「claude」ラベルのオープンIssueを取得"""
+    url = f"https://api.github.com/repos/{repo}/issues"
     headers = {"Authorization": f"token {GH_TOKEN}"}
-    for pjt in config["projects"]:
-        repo = pjt["repo"]
-        url = f"https://api.github.com/repos/{repo}/issues/{number}"
-        resp = requests.get(url, headers=headers)
-        if resp.status_code == 200:
-            data = resp.json()
-            if "pull_request" not in data:  # PRを除外
-                return {
-                    "project": pjt["name"],
-                    "repo": repo,
-                    "number": number,
-                }
-    return None
+    params = {"labels": TRIGGER_LABEL, "state": "open", "per_page": 100}
+    resp = requests.get(url, headers=headers, params=params)
+    data = resp.json()
+
+    if isinstance(data, dict):
+        print(f"⚠️ {repo}: API error - {data.get('message', 'Unknown error')}")
+        return []
+
+    # PRを除外
+    return [issue for issue in data if "pull_request" not in issue]
+
+
+def has_claude_comment(repo, issue_number):
+    """既に @claude コメントが投稿済みか確認"""
+    url = f"https://api.github.com/repos/{repo}/issues/{issue_number}/comments"
+    headers = {"Authorization": f"token {GH_TOKEN}"}
+    resp = requests.get(url, headers=headers)
+    if resp.status_code != 200:
+        return False
+
+    for comment in resp.json():
+        if "@claude" in comment.get("body", ""):
+            return True
+    return False
 
 
 def comment_claude(repo, issue_number, issue_title):
@@ -91,18 +69,15 @@ def comment_claude(repo, issue_number, issue_title):
         print(f"✅ {repo}#{issue_number} ({issue_title}) に @claude で実装依頼しました")
         return True
     else:
-        print(f"❌ {repo}#{issue_number} コメント失敗: {resp.status_code} {resp.text}")
+        print(f"❌ {repo}#{issue_number} コメント失敗: {resp.status_code}")
         return False
 
 
-def get_issue_title(repo, number):
-    """Issue タイトルを取得"""
-    url = f"https://api.github.com/repos/{repo}/issues/{number}"
+def remove_label(repo, issue_number):
+    """処理済みのclaudeラベルを除去（再トリガー防止）"""
+    url = f"https://api.github.com/repos/{repo}/issues/{issue_number}/labels/{TRIGGER_LABEL}"
     headers = {"Authorization": f"token {GH_TOKEN}"}
-    resp = requests.get(url, headers=headers)
-    if resp.status_code == 200:
-        return resp.json().get("title", "")
-    return ""
+    requests.delete(url, headers=headers)
 
 
 def notify_slack(results):
@@ -119,30 +94,40 @@ def notify_slack(results):
 
 
 def main():
-    if not ISSUE_INPUT.strip():
-        print("❌ ISSUE_INPUT が空です。例: '#12 #15' or 'jreast#12'")
-        return
-
     config = load_config()
-    issues = parse_issue_input(ISSUE_INPUT, config)
-
-    if not issues:
-        print(f"❌ Issueが見つかりません: {ISSUE_INPUT}")
-        return
-
-    print(f"📋 {len(issues)}件のIssueに @claude で実装依頼します")
+    print("🔍 claudeラベルのIssueを検索中...")
 
     results = []
-    for issue in issues:
-        title = get_issue_title(issue["repo"], issue["number"])
-        success = comment_claude(issue["repo"], issue["number"], title)
-        results.append({
-            "project": issue["project"],
-            "repo": issue["repo"],
-            "number": issue["number"],
-            "title": title,
-            "success": success,
-        })
+
+    for pjt in config["projects"]:
+        repo = pjt["repo"]
+        name = pjt["name"]
+        issues = fetch_labeled_issues(repo)
+
+        for issue in issues:
+            number = issue["number"]
+            title = issue["title"]
+
+            # 既に @claude コメント済みならスキップ
+            if has_claude_comment(repo, number):
+                print(f"⏭️ {repo}#{number} は既に依頼済み。スキップ。")
+                continue
+
+            success = comment_claude(repo, number, title)
+            if success:
+                remove_label(repo, number)
+
+            results.append({
+                "project": name,
+                "repo": repo,
+                "number": number,
+                "title": title,
+                "success": success,
+            })
+
+    if not results:
+        print("📭 claudeラベルのIssueはありません。")
+        return
 
     notify_slack(results)
 
