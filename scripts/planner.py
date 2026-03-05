@@ -152,8 +152,10 @@ def format_today_message(plan):
     else:
         for task in today_tasks:
             messages.append(
-                f"  ・ [{task['project']}] <{task['url']}|{task['title']}>"
+                f"  ・ `{task['project']}#{task['number']}` <{task['url']}|{task['title']}>"
             )
+        messages.append("")
+        messages.append("💬 Claudeに任せたいものがあれば `jreast#12 inak#15` のように返信してね")
 
     # 残りの日のサマリー
     other_days = {day: tasks for day, tasks in plan.items() if day != today and tasks}
@@ -161,7 +163,7 @@ def format_today_message(plan):
         messages.append("")
         messages.append("📅 *今週の残り*")
         for day, tasks in other_days.items():
-            task_names = ", ".join(t["title"][:20] for t in tasks)
+            task_names = ", ".join(f"{t['project']}#{t['number']}" for t in tasks)
             messages.append(f"  {day}: {task_names}")
 
     return "\n".join(messages)

@@ -1,0 +1,29 @@
+name: Delegate to Claude
+on:
+  workflow_dispatch:
+    inputs:
+      issues:
+        description: 'Issue指定（例: "#12 #15" or "jreast#12 inak#15"）'
+        required: true
+        type: string
+
+jobs:
+  delegate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install requests PyYAML
+
+      - name: Delegate issues to Claude
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          SLACK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          ISSUE_INPUT: ${{ github.event.inputs.issues }}
+        run: python scripts/delegate.py
