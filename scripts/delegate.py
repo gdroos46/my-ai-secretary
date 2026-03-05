@@ -59,9 +59,12 @@ def comment_claude(repo, issue_number, issue_title):
 
     body = (
         f"@claude このIssueの内容を実装してください。\n\n"
-        f"- ブランチを作成し、必要な変更を実装してPRを作成してください\n"
-        f"- 既存のコードスタイルとプロジェクトの規約に従ってください\n"
-        f"- テストがあれば追加・更新してください"
+        f"## 作業手順\n"
+        f"1. `staging` ブランチから新しいブランチを作成してください\n"
+        f"2. このIssueの内容に基づいて実装してください\n"
+        f"3. 既存のコードスタイルとプロジェクトの規約に従ってください\n"
+        f"4. テストがあれば追加・更新してください\n"
+        f"5. `staging` ブランチに向けてPRを作成してください\n"
     )
 
     resp = requests.post(url, headers=headers, json={"body": body})
