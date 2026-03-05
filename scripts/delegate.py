@@ -49,8 +49,20 @@ def has_claude_comment(repo, issue_number):
     return False
 
 
+def get_default_branch(repo):
+    """リポジトリのデフォルトブランチを取得"""
+    url = f"https://api.github.com/repos/{repo}"
+    headers = {"Authorization": f"token {GH_TOKEN}"}
+    resp = requests.get(url, headers=headers)
+    if resp.status_code == 200:
+        return resp.json().get("default_branch", "main")
+    return "main"
+
+
 def comment_claude(repo, issue_number, issue_title):
     """Issueに @claude コメントを投稿して実装を依頼"""
+    base_branch = get_default_branch(repo)
+
     url = f"https://api.github.com/repos/{repo}/issues/{issue_number}/comments"
     headers = {
         "Authorization": f"token {GH_TOKEN}",
@@ -60,11 +72,11 @@ def comment_claude(repo, issue_number, issue_title):
     body = (
         f"@claude このIssueの内容を実装してください。\n\n"
         f"## 作業手順\n"
-        f"1. `staging` ブランチから新しいブランチを作成してください\n"
+        f"1. `{base_branch}` ブランチから新しいブランチを作成してください\n"
         f"2. このIssueの内容に基づいて実装してください\n"
         f"3. 既存のコードスタイルとプロジェクトの規約に従ってください\n"
         f"4. テストがあれば追加・更新してください\n"
-        f"5. `staging` ブランチに向けてPRを作成してください\n"
+        f"5. `{base_branch}` ブランチに向けてPRを作成してください\n"
     )
 
     resp = requests.post(url, headers=headers, json={"body": body})
