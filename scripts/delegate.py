@@ -35,8 +35,8 @@ def fetch_labeled_issues(repo):
     return [issue for issue in data if "pull_request" not in issue]
 
 
-def has_claude_comment(repo, issue_number):
-    """既に @claude コメントが投稿済みか確認"""
+def has_delegate_comment(repo, issue_number):
+    """AI秘書が投稿した @claude コメントが既にあるか確認"""
     url = f"https://api.github.com/repos/{repo}/issues/{issue_number}/comments"
     headers = {"Authorization": f"token {GH_TOKEN}"}
     resp = requests.get(url, headers=headers)
@@ -44,7 +44,9 @@ def has_claude_comment(repo, issue_number):
         return False
 
     for comment in resp.json():
-        if "@claude" in comment.get("body", ""):
+        body = comment.get("body", "")
+        # AI秘書が投稿したコメントの特徴（作業手順セクションがある）
+        if "@claude" in body and "## 作業手順" in body:
             return True
     return False
 
@@ -123,9 +125,9 @@ def main():
             number = issue["number"]
             title = issue["title"]
 
-            # 既に @claude コメント済みならスキップ
-            if has_claude_comment(repo, number):
-                print(f"⏭️ {repo}#{number} は既に依頼済み。スキップ。")
+            # AI秘書が既に依頼済みならスキップ
+            if has_delegate_comment(repo, number):
+                print(f"⏭️ {repo}#{number} は既にAI秘書から依頼済み。スキップ。")
                 continue
 
             success = comment_claude(repo, number, title)
