@@ -155,7 +155,7 @@ def format_today_message(plan):
                 f"  ・ `{task['project']}#{task['number']}` <{task['url']}|{task['title']}>"
             )
         messages.append("")
-        messages.append("💬 Claudeに任せたいものがあれば `jreast#12 inak#15` のように返信してね")
+        messages.append("🤖 Claudeに任せたいIssueがあれば、GitHubで `claude` ラベルをつけてね")
 
     # 残りの日のサマリー
     other_days = {day: tasks for day, tasks in plan.items() if day != today and tasks}
