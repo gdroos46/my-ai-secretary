@@ -1,8 +1,8 @@
 name: Daily Task Planner
 on:
-  schedule:
-    # 毎朝 8:00 JST = 23:00 UTC (前日)
-    - cron: '0 23 * * 0-4'
+  # schedule:
+  #   # 毎朝 8:00 JST = 23:00 UTC (前日)
+  #   - cron: '0 23 * * 0-4'
   workflow_dispatch:
 
 jobs:
